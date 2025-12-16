@@ -78,9 +78,9 @@ class _MenuPageState extends State<MenuPage> {
   List<dynamic> _menuList = [];
   bool _isLoading = true;
 
-  // ★ 나중에 본인의 GitHub 주소로 바꾸세요! (지금은 비워두면 로컬 파일 읽음)
-  final String serverUrl = "https://github.com/SecuThive/quiz-server/blob/main/master_quiz_app/assets/"; 
-  // 예: "[https://raw.githubusercontent.com/아이디/리포지토리/main/assets/](https://raw.githubusercontent.com/아이디/리포지토리/main/assets/)";
+  // ★ 중요: github.com 주소가 아니라 raw.githubusercontent.com 주소여야 합니다!
+  // blob -> main (경로 수정됨)
+  final String serverUrl = "https://raw.githubusercontent.com/SecuThive/quiz-server/main/master_quiz_app/assets/"; 
 
   @override
   void initState() {
@@ -101,12 +101,13 @@ class _MenuPageState extends State<MenuPage> {
           return;
         }
       }
-      throw Exception("서버 없음");
+      throw Exception("서버 연결 실패 (로컬로 전환)");
     } catch (e) {
+      print("메뉴 로드 에러 (백업 실행): $e");
       // 2. 실패 시 로컬 파일 로드 (백업)
       try {
         final String localData = await rootBundle.loadString('assets/index.json');
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 500)); // 로딩 연출
         setState(() {
           _menuList = json.decode(localData);
           _isLoading = false;
@@ -148,7 +149,7 @@ class _MenuPageState extends State<MenuPage> {
                           builder: (context) => PsychTestPage(
                             fileKey: item['key'], 
                             title: item['title'],
-                            serverUrl: serverUrl // 주소 전달
+                            serverUrl: serverUrl // 올바른 주소 전달
                           )));
                       },
                       child: Container(
@@ -204,7 +205,7 @@ class _MenuPageState extends State<MenuPage> {
 }
 
 // =======================
-// 2. 퀴즈 페이지 (광고 + 로직)
+// 2. 퀴즈 페이지 (수정된 버전)
 // =======================
 class PsychTestPage extends StatefulWidget {
   final String fileKey;
@@ -235,7 +236,7 @@ class _PsychTestPageState extends State<PsychTestPage> {
 
   void _loadAd() {
     _bannerAd = BannerAd(
-      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // ★ 테스트용 ID (출시 전 진짜 ID로 교체)
+      adUnitId: 'ca-app-pub-3940256099942544/6300978111', // ★ 테스트용 ID
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -248,23 +249,34 @@ class _PsychTestPageState extends State<PsychTestPage> {
   Future<void> loadQuizData() async {
     try {
       String jsonString;
+      String url = "${widget.serverUrl}${widget.fileKey}.json";
+      
+      print("데이터 요청 중: $url"); // 디버깅 로그
+
       if (widget.serverUrl.isNotEmpty) {
-        // 서버에서 로드
-        final res = await http.get(Uri.parse("${widget.serverUrl}${widget.fileKey}.json"));
-        jsonString = utf8.decode(res.bodyBytes);
+        final res = await http.get(Uri.parse(url));
+        if (res.statusCode == 200) {
+          jsonString = utf8.decode(res.bodyBytes);
+        } else {
+          throw Exception("서버 파일 없음 (Status: ${res.statusCode})");
+        }
       } else {
-        // 로컬에서 로드
         jsonString = await rootBundle.loadString('assets/${widget.fileKey}.json');
       }
       
       final data = json.decode(jsonString);
       setState(() {
         _fullData = data;
-        _questions = data['questions'];
+        _questions = data['questions'] ?? [];
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      print("문제 로드 실패: $e");
+      // 에러가 나도 로딩 상태를 해제해야 에러 화면을 보여줄 수 있음
+      setState(() {
+        _isLoading = false;
+        _questions = []; // 빈 리스트로 유지
+      });
     }
   }
 
@@ -278,13 +290,15 @@ class _PsychTestPageState extends State<PsychTestPage> {
   }
 
   void _showResult() {
-    // 최빈값 계산 (A,B,C,D 중 가장 많이 나온 것)
+    if (_fullData == null || _fullData!['results'] == null) return;
+
     Map<int, int> counts = {};
     for (var a in _userAnswers) { counts[a] = (counts[a] ?? 0) + 1; }
     int maxIdx = 0, maxVal = 0;
     counts.forEach((k, v) { if (v > maxVal) { maxVal = v; maxIdx = k; } });
 
-    final result = _fullData!['results'][maxIdx]; // 결과가 없으면 에러날 수 있으니 주의
+    final results = _fullData!['results'];
+    final result = (maxIdx < results.length) ? results[maxIdx] : results[0];
 
     Navigator.pushReplacement(context, MaterialPageRoute(
       builder: (_) => ResultPage(title: result['title'], content: result['content'], type: result['type'])
@@ -293,7 +307,35 @@ class _PsychTestPageState extends State<PsychTestPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 1. 로딩 중
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    
+    // 2. ★ 에러 발생 (문제가 비어있음) - 여기가 핵심 수정 사항
+    if (_questions.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(title: const Text("오류"), backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: Colors.black)),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.cloud_off, size: 60, color: Colors.grey),
+              const SizedBox(height: 20),
+              const Text("문제를 불러오지 못했습니다.", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              const Text("서버에 파일이 아직 없거나\n인터넷 연결을 확인해주세요.", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 30),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+                onPressed: () => Navigator.pop(context),
+                child: const Text("목록으로 돌아가기"),
+              )
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 3. 정상 화면
     final q = _questions[_currentIndex];
 
     return Scaffold(
