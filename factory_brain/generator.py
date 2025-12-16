@@ -12,9 +12,12 @@ from datetime import datetime
 RSS_URL = "https://trends.google.com/trends/trendingsearches/daily/rss?geo=KR"
 HISTORY_FILE = "../master_quiz_app/assets/history.json"
 INDEX_FILE = "../master_quiz_app/assets/index.json"
-MAX_HISTORY = 50  # 50개 넘어가면 옛날 건 까먹음 (재사용 가능)
+MAX_HISTORY = 50
 
-# 100개의 마르지 않는 샘물
+# 카테고리 정의
+CATEGORIES = ["연애", "성격", "공포", "재물", "직장", "기타"]
+
+# 100개의 마르지 않는 샘물 (기존과 동일, 생략)
 BACKUP_TOPICS = [
     "짝사랑 성공 확률", "나의 연애 세포 등급", "헤어진 연인 재회 가능성", "운명의 상대 얼굴", "나쁜 남자/여자 구별법",
     "결혼 적령기 테스트", "내가 바람을 피운다면?", "질투심 레벨 테스트", "스킨십 선호도", "소개팅 필승 의상",
@@ -57,7 +60,6 @@ def get_keywords(count=2):
     history = load_json(HISTORY_FILE)
     candidates = []
 
-    # 1. 구글 트렌드 시도
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(RSS_URL, headers=headers, timeout=5)
@@ -68,7 +70,6 @@ def get_keywords(count=2):
                     candidates.append(entry.title)
     except: pass
 
-    # 2. 백업 창고 시도 (중복 제외)
     random.shuffle(BACKUP_TOPICS)
     for topic in BACKUP_TOPICS:
         if len(candidates) >= count: break
@@ -90,22 +91,20 @@ def generate_quiz(keyword):
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_key = f"test_{date_str}_{random.randint(10,99)}"
     
+    # ★ 프롬프트 수정: 카테고리(category) 추가 요청
     prompt = f"""
     주제: '{keyword}'
-    심리테스트 5문제와 결과 4개(A,B,C,D 유형)를 JSON으로 작성해.
+    심리테스트 5문제와 결과 4개(A,B,C,D)를 JSON으로 작성해.
+    
+    [추가 규칙]
+    "category" 필드에 [연애, 성격, 공포, 재물, 직장, 기타] 중 가장 어울리는 하나를 골라 적어줘.
     
     {{
         "title": "{keyword} 테스트",
-        "desc": "당신의 성향을 알아보세요",
-        "questions": [
-            {{ "question": "질문", "options": ["A답", "B답", "C답", "D답"] }}
-        ],
-        "results": [
-            {{ "type": "A", "title": "제목", "content": "내용" }},
-            {{ "type": "B", "title": "제목", "content": "내용" }},
-            {{ "type": "C", "title": "제목", "content": "내용" }},
-            {{ "type": "D", "title": "제목", "content": "내용" }}
-        ]
+        "desc": "설명",
+        "category": "연애",
+        "questions": [ ...생략... ],
+        "results": [ ...생략... ]
     }}
     """
     
@@ -114,7 +113,6 @@ def generate_quiz(keyword):
             res = ollama.chat(model='gemma2', messages=[{'role': 'user', 'content': prompt}])
             data = json.loads(clean_json_text(res['message']['content']))
             
-            # 저장
             save_path = f"../master_quiz_app/assets/{file_key}.json"
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             save_json(save_path, data)
@@ -124,7 +122,8 @@ def generate_quiz(keyword):
                 "key": file_key,
                 "title": data['title'],
                 "desc": data['desc'],
-                "is_new": True
+                "category": data.get('category', '기타'), # 카테고리 저장
+                "date": datetime.now().strftime("%Y-%m-%d"), # 생성 날짜 저장
             }, keyword
         except: pass
     
@@ -132,18 +131,12 @@ def generate_quiz(keyword):
     return None, None
 
 def run_factory():
-    print("🏭 === [무한 심리테스트 공장] 가동 ===")
+    print("🏭 === [카테고리형 공장] 가동 ===")
     
-    # 1. 메뉴 & 기록 불러오기
     current_menu = load_json(INDEX_FILE)
     history = load_json(HISTORY_FILE)
     
-    # 기존 'NEW' 뱃지 제거
-    for item in current_menu:
-        if 'is_new' in item: del item['is_new']
-
-    # 2. 생성
-    keywords = get_keywords(2) # 하루 2개
+    keywords = get_keywords(2)
     new_items = []
     
     for kw in keywords:
@@ -152,15 +145,15 @@ def run_factory():
             new_items.append(meta)
             history.append(word)
 
-    # 3. 저장 (메뉴판 업데이트 + 기록장 업데이트)
-    # 기록장은 최신 50개만 유지 (오래된 건 삭제 -> 재사용 가능하게 됨)
     if len(history) > MAX_HISTORY:
         history = history[-MAX_HISTORY:]
 
-    save_json(INDEX_FILE, new_items + current_menu)
+    # 최신순 정렬
+    updated_menu = new_items + current_menu
+    save_json(INDEX_FILE, updated_menu)
     save_json(HISTORY_FILE, history)
     
-    print(f"\n✨ {len(new_items)}개 추가 완료. (기록장: {len(history)}/{MAX_HISTORY})")
+    print(f"\n✨ 업데이트 완료.")
 
 if __name__ == "__main__":
     run_factory()
