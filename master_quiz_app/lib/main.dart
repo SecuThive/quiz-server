@@ -61,8 +61,8 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
   late TabController _tabController;
 
   // ★ 서버 주소 (본인의 github raw 주소로 변경)
-  final String serverUrl = "[https://raw.githubusercontent.com/SecuThive/quiz-server/main/master_quiz_app/assets/](https://raw.githubusercontent.com/SecuThive/quiz-server/main/master_quiz_app/assets/)";
-  
+// ✅ 올바른 코드 (괄호 다 지움)
+  final String serverUrl = "https://raw.githubusercontent.com/SecuThive/quiz-server/main/master_quiz_app/assets/";  
   // 카테고리 목록
   final List<String> categories = ["전체", "연애", "성격", "공포", "재물", "직장", "기타"];
 
