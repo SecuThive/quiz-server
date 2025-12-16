@@ -1,11 +1,9 @@
 name: Daily Psychology Quiz Bot
 
-# 언제 실행할지 설정
 on:
   schedule:
-    # 한국 시간 아침 8시 (UTC 23:00)마다 실행
-    - cron: '0 23 * * *'
-  workflow_dispatch: # GitHub 웹사이트에서 버튼 눌러서 수동 실행 가능
+    - cron: '0 23 * * *' # 한국 시간 아침 8시
+  workflow_dispatch: # 수동 실행 버튼
 
 permissions:
   contents: write
@@ -24,12 +22,12 @@ jobs:
         with:
           python-version: '3.9'
 
-      # 3. 필요한 라이브러리 설치
+      # 3. 필요한 라이브러리 설치 (★ 여기에 ollama 추가함!)
       - name: Install dependencies
         run: |
-          pip install requests feedparser
+          pip install requests feedparser ollama
 
-      # ★ 중요: Ollama는 GitHub 서버에 없으므로 설치해줘야 함
+      # 4. Ollama 서버 설치 및 모델 다운로드
       - name: Install & Start Ollama
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
@@ -37,16 +35,17 @@ jobs:
           sleep 5
           ollama pull gemma2
 
-      # 4. 파이썬 스크립트 실행 (파일 생성)
+      # 5. 파이썬 스크립트 실행 (파일 생성)
       - name: Run Generator
         run: |
           cd factory_brain
           python generator.py
 
-      # 5. 생성된 파일을 GitHub에 업로드 (Git Push)
+      # 6. 생성된 파일을 GitHub에 업로드
       - name: Commit and Push changes
         run: |
           git config --global user.name "AutoBot"
           git config --global user.email "bot@noreply.github.com"
           git add master_quiz_app/assets/*
+          # 변경사항이 있을 때만 커밋 (에러 방지)
           git diff --quiet && git diff --staged --quiet || (git commit -m "🤖 봇이 새로운 심리테스트를 배달했습니다!" && git push)
