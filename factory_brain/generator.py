@@ -17,7 +17,6 @@ MAX_HISTORY = 50
 # 카테고리 정의
 CATEGORIES = ["연애", "성격", "공포", "재물", "직장", "기타"]
 
-# 100개의 마르지 않는 샘물 (기존과 동일, 생략)
 BACKUP_TOPICS = [
     "짝사랑 성공 확률", "나의 연애 세포 등급", "헤어진 연인 재회 가능성", "운명의 상대 얼굴", "나쁜 남자/여자 구별법",
     "결혼 적령기 테스트", "내가 바람을 피운다면?", "질투심 레벨 테스트", "스킨십 선호도", "소개팅 필승 의상",
@@ -59,7 +58,6 @@ def get_keywords(count=2):
     print("📡 주제 선정 중...")
     history = load_json(HISTORY_FILE)
     candidates = []
-
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(RSS_URL, headers=headers, timeout=5)
@@ -69,13 +67,11 @@ def get_keywords(count=2):
                 if not is_duplicate(entry.title, history):
                     candidates.append(entry.title)
     except: pass
-
     random.shuffle(BACKUP_TOPICS)
     for topic in BACKUP_TOPICS:
         if len(candidates) >= count: break
         if not is_duplicate(topic, history) and topic not in candidates:
             candidates.append(topic)
-            
     return candidates[:count]
 
 def clean_json_text(text):
@@ -86,57 +82,113 @@ def clean_json_text(text):
     except: pass
     return text
 
+def infer_category(keyword, ai_category):
+    if ai_category in CATEGORIES: return ai_category
+    keyword = keyword.replace(" ", "")
+    if any(x in keyword for x in ["연애", "사랑", "이별", "고백", "이상형", "재회"]): return "연애"
+    if any(x in keyword for x in ["성격", "MBTI", "심리", "멘탈"]): return "성격"
+    if any(x in keyword for x in ["공포", "귀신", "좀비", "납치", "살인"]): return "공포"
+    if any(x in keyword for x in ["돈", "부자", "로또", "재산", "소비"]): return "재물"
+    if any(x in keyword for x in ["직장", "회사", "업무", "면접"]): return "직장"
+    return "기타"
+
+# ★★★ 핵심 추가: 데이터 품질 검사 함수 ★★★
+def validate_and_fix_data(data):
+    # 1. 필수 키 확인
+    if not all(k in data for k in ["title", "desc", "questions", "results"]):
+        return None
+    
+    # 2. 질문 개수 확인 (최소 1개)
+    if not data['questions']: return None
+
+    # 3. 결과 데이터 보정 (content가 없으면 desc를 복사 등)
+    for res in data['results']:
+        # type이 없으면 A, B, C, D로 강제 할당 시도 (여기선 단순화)
+        if 'type' not in res: res['type'] = "Result"
+        
+        # content가 없고 desc나 description이 있으면 옮겨줌
+        if 'content' not in res:
+            if 'desc' in res: res['content'] = res['desc']
+            elif 'description' in res: res['content'] = res['description']
+            else: return None # 내용이 아예 없으면 불량품
+
+        # title이 없으면 type이라도 넣음
+        if 'title' not in res: res['title'] = res['type']
+
+    return data
+
 def generate_quiz(keyword):
     print(f"🧠 [{keyword}] 생성 중...", end=" ")
     date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_key = f"test_{date_str}_{random.randint(10,99)}"
     
-    # ★ 프롬프트 수정: 카테고리(category) 추가 요청
+    # ★ 프롬프트 강화: 필드명을 정확하게 명시
     prompt = f"""
     주제: '{keyword}'
     심리테스트 5문제와 결과 4개(A,B,C,D)를 JSON으로 작성해.
     
-    [추가 규칙]
-    "category" 필드에 [연애, 성격, 공포, 재물, 직장, 기타] 중 가장 어울리는 하나를 골라 적어줘.
-    
+    [필수 형식 준수]
     {{
-        "title": "{keyword} 테스트",
-        "desc": "설명",
-        "category": "연애",
-        "questions": [ ...생략... ],
-        "results": [ ...생략... ]
+        "title": "테스트 제목",
+        "desc": "테스트 설명",
+        "category": "연애, 성격, 공포, 재물, 직장, 기타 중 택1",
+        "questions": [
+            {{ "question": "질문 내용", "options": ["선택지1", "선택지2", "선택지3", "선택지4"] }}
+        ],
+        "results": [
+            {{ "type": "A", "title": "결과 제목", "content": "상세한 결과 내용(3문장 이상)" }},
+            {{ "type": "B", "title": "결과 제목", "content": "상세한 결과 내용" }}
+        ]
     }}
     """
     
-    for _ in range(3):
+    for i in range(3): # 3번까지 재시도
         try:
             res = ollama.chat(model='gemma2', messages=[{'role': 'user', 'content': prompt}])
-            data = json.loads(clean_json_text(res['message']['content']))
+            raw_data = json.loads(clean_json_text(res['message']['content']))
             
-            save_path = f"../master_quiz_app/assets/{file_key}.json"
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            save_json(save_path, data)
+            # ★ 품질 검사 실행
+            valid_data = validate_and_fix_data(raw_data)
             
-            print("✅ 성공")
-            return {
-                "key": file_key,
-                "title": data['title'],
-                "desc": data['desc'],
-                "category": data.get('category', '기타'), # 카테고리 저장
-                "date": datetime.now().strftime("%Y-%m-%d"), # 생성 날짜 저장
-            }, keyword
-        except: pass
+            if valid_data:
+                # 카테고리 보정
+                raw_cat = valid_data.get('category', '기타')
+                final_cat = infer_category(keyword, raw_cat)
+                valid_data['category'] = final_cat
+
+                save_path = f"../master_quiz_app/assets/{file_key}.json"
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                save_json(save_path, valid_data)
+                
+                print(f"✅ 성공 ({final_cat})")
+                return {
+                    "key": file_key,
+                    "title": valid_data['title'],
+                    "desc": valid_data['desc'],
+                    "category": final_cat, 
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "is_new": True
+                }, keyword
+            else:
+                print(f"⚠️ 불량 데이터 발생 (재시도 {i+1}/3)")
+        except: 
+            print(f"⚠️ JSON 파싱 실패 (재시도 {i+1}/3)")
+            pass
     
-    print("❌ 실패")
+    print("❌ 최종 실패")
     return None, None
 
 def run_factory():
-    print("🏭 === [카테고리형 공장] 가동 ===")
+    print("🏭 === [QC 강화된 공장] 가동 ===")
     
     current_menu = load_json(INDEX_FILE)
     history = load_json(HISTORY_FILE)
     
-    keywords = get_keywords(10)
+    for item in current_menu:
+        if 'is_new' in item: del item['is_new']
+
+    # ★ 초기화 하실 거면 여기 10으로, 아니면 2로 설정
+    keywords = get_keywords(10) 
     new_items = []
     
     for kw in keywords:
@@ -148,12 +200,11 @@ def run_factory():
     if len(history) > MAX_HISTORY:
         history = history[-MAX_HISTORY:]
 
-    # 최신순 정렬
     updated_menu = new_items + current_menu
     save_json(INDEX_FILE, updated_menu)
     save_json(HISTORY_FILE, history)
     
-    print(f"\n✨ 업데이트 완료.")
+    print(f"\n✨ 업데이트 완료. 불량품은 자동 폐기되었습니다.")
 
 if __name__ == "__main__":
     run_factory()

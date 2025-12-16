@@ -73,53 +73,82 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     loadMenu();
   }
 
-  Future<void> loadMenu() async {
+ Future<void> loadMenu() async {
+    print("🚀 [1단계] 메뉴 로딩 시작!"); // 추적 시작
     try {
       String jsonStr;
+      
+      // 1. 서버 주소 확인
+      print("📡 서버 주소: $serverUrl"); 
+      
       if (serverUrl.isNotEmpty) {
-        final res = await http.get(Uri.parse(serverUrl + "index.json"));
-        if (res.statusCode == 200) jsonStr = utf8.decode(res.bodyBytes);
-        else throw Exception("Server Error");
+        final url = Uri.parse(serverUrl + "index.json");
+        print("🌐 요청 URL: $url");
+
+        final res = await http.get(url);
+        print("📨 서버 응답 코드: ${res.statusCode}");
+
+        if (res.statusCode == 200) {
+          jsonStr = utf8.decode(res.bodyBytes);
+          print("✅ 서버 데이터 수신 성공: ${jsonStr.substring(0, 50)}..."); // 앞부분만 살짝 출력
+        } else {
+          print("❌ 서버 에러: ${res.statusCode}");
+          throw Exception("Server Error");
+        }
       } else {
         throw Exception("No Server URL");
       }
       
       final List<dynamic> data = json.decode(jsonStr);
+      print("📦 데이터 개수: ${data.length}개");
       _processData(data);
 
     } catch (e) {
-      // 로컬 백업 로드
+      print("⚠️ [서버 로드 실패] 원인: $e");
+      
+      // 2. 로컬 백업 로드 시도
       try {
+        print("📂 로컬 파일 로드 시도 중...");
         final localStr = await rootBundle.loadString('assets/index.json');
+        print("✅ 로컬 파일 로드 성공");
         _processData(json.decode(localStr));
       } catch (e) {
+        print("💀 [최종 실패] 로컬 파일도 없음: $e");
         setState(() => _isLoading = false);
       }
     }
   }
 
-  void _processData(List<dynamic> data) {
-    // 오늘 날짜 구하기 (YYYY-MM-DD)
+ void _processData(List<dynamic> data) {
+    // 오늘 날짜 구하기
     String today = DateTime.now().toString().substring(0, 10);
     
     List<dynamic> todayList = [];
     List<dynamic> otherList = [];
 
     for (var item in data) {
-      // JSON에 date가 없으면 옛날 것으로 간주
-      String itemDate = item['date'] ?? "";
+      // ★ 안전장치 1: 데이터가 '사전(Map)' 형태가 아니면 건너뜀 (이게 핵심!)
+      if (item is! Map) {
+        print("⚠️ 불량 데이터 발견(건너뜀): $item");
+        continue;
+      }
+
+      // ★ 안전장치 2: date 필드가 없으면 옛날 날짜로 침
+      String itemDate = item['date'] ?? "2000-01-01";
       
       if (itemDate == today) {
-        todayList.add(item); // 오늘 생성된 것
+        todayList.add(item); 
       } else {
-        otherList.add(item); // 지난 것
+        otherList.add(item); 
       }
     }
+
+    print("✅ 데이터 분류 완료: 오늘(${todayList.length}개) / 전체(${otherList.length}개)");
 
     setState(() {
       _allTests = data;
       _todayTests = todayList;
-      _categoryTests = otherList; // 여기엔 오늘 것 제외
+      _categoryTests = otherList;
       _isLoading = false;
     });
   }
@@ -350,15 +379,37 @@ class _PsychTestPageState extends State<PsychTestPage> {
     else _showResult();
   }
 
-  void _showResult() {
-    if (_fullData == null) return;
+void _showResult() {
+    // 1. 데이터가 아예 없는 경우 방어
+    if (_fullData == null || _fullData!['results'] == null) return;
+    
+    final results = _fullData!['results'];
+    if (results.isEmpty) return;
+
+    // 2. 점수 계산 (기존과 동일)
     Map<int, int> counts = {};
-    for (var a in _userAnswers) counts[a] = (counts[a] ?? 0) + 1;
+    for (var a in _userAnswers) { counts[a] = (counts[a] ?? 0) + 1; }
     int maxIdx = 0, maxVal = 0;
     counts.forEach((k, v) { if (v > maxVal) { maxVal = v; maxIdx = k; } });
-    final results = _fullData!['results'];
+
+    // 3. 결과 선택
     final result = (maxIdx < results.length) ? results[maxIdx] : results[0];
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ResultPage(title: result['title'], content: result['content'], type: result['type'])));
+    
+    print("🎯 결과 데이터 확인: $result"); // 디버깅용 로그
+
+    // 4. ★★★ 핵심 수정: 데이터가 Null이면 기본값("...")을 넣어줌 (?? 연산자)
+    Navigator.pushReplacement(context, MaterialPageRoute(
+      builder: (_) => ResultPage(
+        // title이 없으면 "결과"라고 띄움
+        title: result['title']?.toString() ?? "결과", 
+        
+        // content가 없으면 desc를 찾고, 그것도 없으면 "내용 없음" 출력
+        content: result['content']?.toString() ?? result['desc']?.toString() ?? "결과 내용이 없습니다.", 
+        
+        // type이 없으면 "Result"라고 띄움
+        type: result['type']?.toString() ?? "Result"
+      )
+    ));
   }
 
   @override
