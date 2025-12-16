@@ -79,7 +79,7 @@ class _MenuPageState extends State<MenuPage> {
   bool _isLoading = true;
 
   // ★ 나중에 본인의 GitHub 주소로 바꾸세요! (지금은 비워두면 로컬 파일 읽음)
-  final String serverUrl = ""; 
+  final String serverUrl = "https://github.com/SecuThive/quiz-server/blob/main/master_quiz_app/assets/"; 
   // 예: "[https://raw.githubusercontent.com/아이디/리포지토리/main/assets/](https://raw.githubusercontent.com/아이디/리포지토리/main/assets/)";
 
   @override
