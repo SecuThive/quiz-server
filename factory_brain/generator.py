@@ -136,7 +136,7 @@ def run_factory():
     current_menu = load_json(INDEX_FILE)
     history = load_json(HISTORY_FILE)
     
-    keywords = get_keywords(2)
+    keywords = get_keywords(10)
     new_items = []
     
     for kw in keywords:
