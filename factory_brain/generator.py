@@ -188,7 +188,7 @@ def run_factory():
         if 'is_new' in item: del item['is_new']
 
     # ★ 초기화 하실 거면 여기 10으로, 아니면 2로 설정
-    keywords = get_keywords(10) 
+    keywords = get_keywords(3) 
     new_items = []
     
     for kw in keywords:

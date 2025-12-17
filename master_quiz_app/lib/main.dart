@@ -56,14 +56,10 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
   List<dynamic> _allTests = [];
   List<dynamic> _todayTests = [];
-  List<dynamic> _categoryTests = [];
   bool _isLoading = true;
   late TabController _tabController;
 
-  // ★ 서버 주소 (본인의 github raw 주소로 변경)
-// ✅ 올바른 코드 (괄호 다 지움)
- final String serverUrl = "https://raw.githubusercontent.com/SecuThive/quiz-server/main/master_quiz_app/assets/";
-  // 카테고리 목록
+  final String serverUrl = "https://raw.githubusercontent.com/SecuThive/quiz-server/main/master_quiz_app/assets/";
   final List<String> categories = ["전체", "연애", "성격", "공포", "재물", "직장", "기타"];
 
   @override
@@ -73,89 +69,63 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
     loadMenu();
   }
 
- Future<void> loadMenu() async {
-    print("🚀 [1단계] 메뉴 로딩 시작!"); // 추적 시작
+  Future<void> loadMenu() async {
     try {
       String jsonStr;
-      
-      // 1. 서버 주소 확인
-      print("📡 서버 주소: $serverUrl"); 
-      
       if (serverUrl.isNotEmpty) {
-        final url = Uri.parse(serverUrl + "index.json");
-        print("🌐 요청 URL: $url");
-
-        final res = await http.get(url);
-        print("📨 서버 응답 코드: ${res.statusCode}");
-
-        if (res.statusCode == 200) {
-          jsonStr = utf8.decode(res.bodyBytes);
-          print("✅ 서버 데이터 수신 성공: ${jsonStr.substring(0, 50)}..."); // 앞부분만 살짝 출력
-        } else {
-          print("❌ 서버 에러: ${res.statusCode}");
-          throw Exception("Server Error");
-        }
+        final res = await http.get(Uri.parse(serverUrl + "index.json"));
+        if (res.statusCode == 200) jsonStr = utf8.decode(res.bodyBytes);
+        else throw Exception("Server Error");
       } else {
-        throw Exception("No Server URL");
+        throw Exception("No URL");
       }
-      
       final List<dynamic> data = json.decode(jsonStr);
-      print("📦 데이터 개수: ${data.length}개");
       _processData(data);
-
     } catch (e) {
-      print("⚠️ [서버 로드 실패] 원인: $e");
-      
-      // 2. 로컬 백업 로드 시도
       try {
-        print("📂 로컬 파일 로드 시도 중...");
         final localStr = await rootBundle.loadString('assets/index.json');
-        print("✅ 로컬 파일 로드 성공");
         _processData(json.decode(localStr));
       } catch (e) {
-        print("💀 [최종 실패] 로컬 파일도 없음: $e");
-        setState(() => _isLoading = false);
+        if (mounted) setState(() => _isLoading = false);
       }
     }
   }
 
- void _processData(List<dynamic> data) {
-    // 오늘 날짜 구하기
+  // ★★★ 여기가 수정되었습니다! (불량품 거르기) ★★★
+  void _processData(List<dynamic> data) {
     String today = DateTime.now().toString().substring(0, 10);
     
+    List<dynamic> cleanData = []; // 불량품을 걸러낸 깨끗한 전체 리스트
     List<dynamic> todayList = [];
-    List<dynamic> otherList = [];
 
     for (var item in data) {
-      // ★ 안전장치 1: 데이터가 '사전(Map)' 형태가 아니면 건너뜀 (이게 핵심!)
-      if (item is! Map) {
-        print("⚠️ 불량 데이터 발견(건너뜀): $item");
-        continue;
-      }
-
-      // ★ 안전장치 2: date 필드가 없으면 옛날 날짜로 침
-      String itemDate = item['date'] ?? "2000-01-01";
+      // 1. 데이터가 Map(사전) 형태가 아니면 무조건 버림 (에러 원인 차단)
+      if (item is! Map) continue;
       
-      if (itemDate == today) {
-        todayList.add(item); 
-      } else {
-        otherList.add(item); 
-      }
+      // 2. 제목이 없는 경우도 버림
+      if (item['title'] == null) continue;
+
+      // 여기까지 통과하면 정상 데이터!
+      cleanData.add(item);
+
+      String itemDate = item['date'] ?? "2000-01-01";
+      if (itemDate == today) todayList.add(item);
     }
 
-    print("✅ 데이터 분류 완료: 오늘(${todayList.length}개) / 전체(${otherList.length}개)");
-
-    setState(() {
-      _allTests = data;
-      _todayTests = todayList;
-      _categoryTests = otherList;
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _allTests = cleanData; // ★ 원본(data) 대신 깨끗한 리스트(cleanData)를 넣음
+        _todayTests = todayList;
+        _isLoading = false;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+
+    String today = DateTime.now().toString().substring(0, 10);
 
     return Scaffold(
       appBar: AppBar(
@@ -166,7 +136,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
       body: NestedScrollView(
         headerSliverBuilder: (context, innerBoxIsScrolled) {
           return [
-            // 1. 상단: 오늘의 업데이트 섹션
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -183,20 +152,21 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                     const SizedBox(height: 15),
                     if (_todayTests.isEmpty)
                       Container(
+                        width: double.infinity,
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(15)),
-                        child: const Center(child: Text("오늘 업데이트된 테스트가 없습니다.\n(내일 아침 8시를 기다려주세요!)", textAlign: TextAlign.center)),
+                        child: const Center(child: Text("오늘의 신상 테스트가 준비 중입니다.", style: TextStyle(color: Colors.grey))),
                       )
                     else
                       SizedBox(
-                        height: 180, // 가로 스크롤 높이
+                        height: 180,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
                           itemCount: _todayTests.length,
                           itemBuilder: (context, index) {
                             final item = _todayTests[index];
                             return GestureDetector(
-                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PsychTestPage(fileKey: item['key'], title: item['title'], serverUrl: serverUrl))),
+                              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PsychTestPage(fileKey: item['key'], title: item['title'] ?? "제목 없음", serverUrl: serverUrl))),
                               child: Container(
                                 width: 280,
                                 margin: const EdgeInsets.only(right: 15),
@@ -216,9 +186,7 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                                       child: const Text("NEW ✨", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
                                     ),
                                     const SizedBox(height: 10),
-                                    Text(item['title'], style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
-                                    const SizedBox(height: 5),
-                                    Text(item['desc'], style: const TextStyle(color: Colors.white70, fontSize: 14), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    Text(item['title'] ?? "제목 없음", style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold), maxLines: 2, overflow: TextOverflow.ellipsis),
                                   ],
                                 ),
                               ),
@@ -230,8 +198,6 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                 ),
               ),
             ),
-            
-            // 2. 탭바 (카테고리)
             SliverPersistentHeader(
               delegate: _SliverAppBarDelegate(
                 TabBar(
@@ -247,24 +213,26 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
             ),
           ];
         },
-        // 3. 탭 내용 (지난 테스트들)
         body: TabBarView(
           controller: _tabController,
           children: categories.map((cat) {
-            // 해당 카테고리만 필터링 (전체는 다 보여줌)
             final list = cat == "전체" 
-                ? (_categoryTests.isEmpty ? _allTests : _categoryTests) // 오늘꺼 없을때 대비
-                : _categoryTests.where((e) => (e['category'] ?? "기타") == cat).toList();
+                ? _allTests 
+                : _allTests.where((e) => (e['category'] ?? "기타") == cat).toList();
 
-            if (list.isEmpty) return const Center(child: Text("아직 이 카테고리의 테스트가 없어요!"));
+            if (list.isEmpty) return Center(child: Text("아직 '$cat' 테스트가 없어요!"));
 
             return ListView.builder(
               padding: const EdgeInsets.all(20),
               itemCount: list.length,
               itemBuilder: (context, index) {
                 final item = list[index];
+                String title = item['title'] ?? "무제";
+                String firstChar = title.isNotEmpty ? title.substring(0, 1) : "?";
+                bool isNew = (item['date'] ?? "") == today;
+
                 return GestureDetector(
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PsychTestPage(fileKey: item['key'], title: item['title'], serverUrl: serverUrl))),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PsychTestPage(fileKey: item['key'], title: title, serverUrl: serverUrl))),
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 15),
                     padding: const EdgeInsets.all(20),
@@ -275,16 +243,28 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
                           width: 50, height: 50,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
-                          child: Text(item['title'].substring(0, 1), style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          child: Text(firstChar, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.deepPurple)),
                         ),
                         const SizedBox(width: 15),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(item['title'], style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              Row(
+                                children: [
+                                  Flexible(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                                  if (isNew) ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(5)),
+                                      child: const Text("NEW", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                    )
+                                  ]
+                                ],
+                              ),
                               const SizedBox(height: 4),
-                              Text(item['desc'], style: const TextStyle(color: Colors.grey, fontSize: 12), maxLines: 1),
+                              Text(item['desc'] ?? "...", style: const TextStyle(color: Colors.grey, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
                             ],
                           ),
                         ),
@@ -440,16 +420,77 @@ class ResultPage extends StatelessWidget {
   final String content;
   final String type;
   const ResultPage({super.key, required this.title, required this.content, required this.type});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Scaffold 배경을 투명하게 하거나 아예 없앰
       body: Container(
-        decoration: const BoxDecoration(gradient: LinearGradient(colors: [Color(0xFFa18cd1), Color(0xFFfbc2eb)])),
-        child: SafeArea(child: SingleChildScrollView(padding: const EdgeInsets.all(30), child: Column(children: [
-          const SizedBox(height: 30), const Text("나의 결과는?", style: TextStyle(color: Colors.white70, fontSize: 18)), const SizedBox(height: 20),
-          Container(padding: const EdgeInsets.all(30), decoration: BoxDecoration(color: Colors.white.withOpacity(0.95), borderRadius: BorderRadius.circular(30), boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 20)]), child: Column(children: [Chip(label: Text("Type $type", style: const TextStyle(color: Colors.white)), backgroundColor: Colors.deepPurple), const SizedBox(height: 20), Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), const SizedBox(height: 20), Text(content, style: const TextStyle(fontSize: 16, height: 1.6), textAlign: TextAlign.justify)])),
-          const SizedBox(height: 40), SizedBox(width: double.infinity, height: 60, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.deepPurple, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))), onPressed: () => Navigator.popUntil(context, (route) => route.isFirst), child: const Text("처음으로", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))))
-        ]))),
+        width: double.infinity,
+        height: double.infinity, // ★ 화면 전체 채우기 필수
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFa18cd1), Color(0xFFfbc2eb)], 
+            begin: Alignment.topCenter, 
+            end: Alignment.bottomCenter
+          )
+        ),
+        child: SafeArea( // ★ 배경 위에 SafeArea를 얹음
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(30),
+                  child: Column(
+                    children: [
+                      const SizedBox(height: 30),
+                      const Text("나의 결과는?", style: TextStyle(color: Colors.white70, fontSize: 18)),
+                      const SizedBox(height: 20),
+                      
+                      // 결과 카드
+                      Container(
+                        width: double.infinity, // 가로 꽉 채우기
+                        padding: const EdgeInsets.all(30),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.95), 
+                          borderRadius: BorderRadius.circular(30), 
+                          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 20, offset: const Offset(0, 10))]
+                        ),
+                        child: Column(
+                          children: [
+                            Chip(label: Text("Type $type", style: const TextStyle(color: Colors.white)), backgroundColor: Colors.deepPurple),
+                            const SizedBox(height: 20),
+                            Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 20),
+                            Text(content, style: const TextStyle(fontSize: 16, height: 1.6), textAlign: TextAlign.justify),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              // 하단 버튼 (화면 아래 고정)
+              Padding(
+                padding: const EdgeInsets.all(30),
+                child: SizedBox(
+                  width: double.infinity, 
+                  height: 60,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white, 
+                      foregroundColor: Colors.deepPurple, 
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))
+                    ),
+                    onPressed: () => Navigator.popUntil(context, (route) => route.isFirst),
+                    child: const Text("처음으로", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              )
+            ],
+          ),
+        ),
       ),
     );
   }
